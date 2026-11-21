@@ -5,6 +5,9 @@ import com.tienda.pedidos.dto.ItemPedido;
 import com.tienda.pedidos.dto.PedidoRequest;
 import com.tienda.pedidos.dto.ResultadoPedido;
 import com.tienda.pedidos.validacion.ContextoPedido;
+import com.tienda.pedidos.validacion.PromocionBlackFriday;
+import com.tienda.pedidos.validacion.PromocionCorporativo;
+import com.tienda.pedidos.validacion.PromocionVolumen;
 import com.tienda.pedidos.validacion.ValidadorCliente;
 import com.tienda.pedidos.validacion.ValidadorPedido;
 import com.tienda.pedidos.validacion.ValidadorStock;
@@ -12,6 +15,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+// GestorPedidos ahora encadena 5 eslabones (2 de validacion real + 3 de "promocion")
+// y combina el descuento de Strategy con el descuentoCampana escrito por la cadena
 @Service
 public class GestorPedidos {
 
@@ -24,10 +29,16 @@ public class GestorPedidos {
 
     public GestorPedidos(ValidadorStock stock,
                          ValidadorCliente cliente,
+                         PromocionBlackFriday blackFriday,
+                         PromocionCorporativo corporativo,
+                         PromocionVolumen volumen,
                          SelectorEstrategiaDescuento selector,
                          PedidoRepository repository,
                          NotificacionPedidoService notificacion) {
-        this.primerValidador = stock.encadenar(cliente);
+        this.primerValidador = stock.encadenar(cliente)
+                .encadenar(blackFriday)
+                .encadenar(corporativo)
+                .encadenar(volumen);
         this.selector = selector;
         this.repository = repository;
         this.notificacion = notificacion;
@@ -46,7 +57,9 @@ public class GestorPedidos {
         double subtotal = calcularSubtotal(request);
         contexto.setSubtotal(subtotal);
 
-        double descuento = selector.seleccionar(contexto.getTipoCliente()).calcular(contexto);
+        double descuentoTipoCliente = selector.seleccionar(contexto.getTipoCliente()).calcular(contexto);
+        double descuento = Math.max(descuentoTipoCliente, contexto.getDescuentoCampana());
+
         double baseImponible = subtotal - (subtotal * descuento);
         double impuesto = baseImponible * 0.19;
         double total = baseImponible + impuesto;
